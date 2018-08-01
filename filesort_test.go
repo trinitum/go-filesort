@@ -60,7 +60,9 @@ func TestSort(t *testing.T) {
 		"tttt",
 	}
 	for _, l := range lines {
-		sort.Sort(l)
+		if err := sort.Sort(l); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := sort.Close(); err != nil {
 		t.Fatal(err)
@@ -68,7 +70,10 @@ func TestSort(t *testing.T) {
 	var n int
 	prev := ""
 	for {
-		out := sort.Read()
+		out, err := sort.Read()
+		if err != nil {
+			t.Fatal(err)
+		}
 		if out == nil {
 			break
 		}

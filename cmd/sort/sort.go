@@ -63,12 +63,17 @@ func main() {
 		if err != nil {
 			break
 		}
-		sort.Sort(line)
+		if err := sort.Sort(line); err != nil {
+			panic(err)
+		}
 	}
 	sort.Close()
 	bout := bufio.NewWriter(os.Stdout)
 	for {
-		out := sort.Read()
+		out, err := sort.Read()
+		if err != nil {
+			panic(err)
+		}
 		if out == nil {
 			break
 		}

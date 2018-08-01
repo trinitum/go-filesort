@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"os"
 	"sort"
+	"sync/atomic"
 )
 
 // Less is a function that compares two values. Should return true if a should
@@ -48,6 +49,7 @@ type FileSort struct {
 	files      []string
 	newEncoder EncoderConstructor
 	newDecoder DecoderConstructor
+	err        atomic.Value
 }
 
 // Option represents various options for FileSort
@@ -103,41 +105,55 @@ func New(opts ...Option) (*FileSort, error) {
 func (ps *FileSort) sort() {
 	tempDir, err := ioutil.TempDir("", "filesort")
 	if err != nil {
-		panic("couldn't create a temporary directory: " + err.Error())
+		ps.err.Store(fmt.Errorf("couldn't create temporary directory: %v", err))
 	}
 	for v := range ps.in {
+		// if there was en error just drain the channel
+		if err != nil {
+			continue
+		}
 		ps.buffer = append(ps.buffer, v)
 		ps.bufferLen++
 		if ps.bufferLen >= ps.bufferMax {
 			sort.SliceStable(ps.buffer, func(i, j int) bool { return ps.less(ps.buffer[i], ps.buffer[j]) })
-			ps.flushBuffer(tempDir)
+			err = ps.flushBuffer(tempDir)
+			if err != nil {
+				ps.err.Store(err)
+			}
 		}
 	}
+	if err != nil {
+		close(ps.out)
+		return
+	}
 	sort.SliceStable(ps.buffer, func(i, j int) bool { return ps.less(ps.buffer[i], ps.buffer[j]) })
-	ps.merge()
+	if err := ps.merge(); err != nil {
+		ps.err.Store(err)
+	}
 }
 
-func (ps *FileSort) flushBuffer(tempDir string) {
+func (ps *FileSort) flushBuffer(tempDir string) error {
 	file, err := ioutil.TempFile(tempDir, "i")
 	ps.files = append(ps.files, file.Name())
 	if err != nil {
-		panic("couldn't create a temporary file: " + err.Error())
+		return fmt.Errorf("couldn't create a temporary file: %v", err)
 	}
 	enc := ps.newEncoder(file)
 	for _, v := range ps.buffer {
 		if err := enc.Encode(v); err != nil {
-			panic("couldn't encode a value: " + err.Error())
+			return fmt.Errorf("couldn't encode a value: %v", err)
 		}
 	}
 	ps.buffer = nil
 	ps.bufferLen = 0
 	if err := enc.Close(); err != nil {
-		panic("error when closing encoder: " + err.Error())
+		return fmt.Errorf("error when closing encoder: %v", err)
 	}
+	return nil
 }
 
 type reader interface {
-	Next() interface{}
+	Next() (interface{}, error)
 }
 
 type sliceReader struct {
@@ -145,14 +161,14 @@ type sliceReader struct {
 	slice []interface{}
 }
 
-func (sr *sliceReader) Next() interface{} {
+func (sr *sliceReader) Next() (interface{}, error) {
 	if sr.n == len(sr.slice) {
 		sr.slice = nil
 		sr.n = 0
-		return nil
+		return nil, nil
 	}
 	sr.n++
-	return sr.slice[sr.n-1]
+	return sr.slice[sr.n-1], nil
 }
 
 type fileReader struct {
@@ -172,75 +188,94 @@ func (ps *FileSort) makeFileReader(name string) (*fileReader, error) {
 	}, nil
 }
 
-func (fr *fileReader) Next() interface{} {
+func (fr *fileReader) Next() (interface{}, error) {
 	if fr.file == nil {
-		return nil
+		return nil, nil
 	}
 	res, err := fr.dec.Decode()
 	if err != nil && err != io.EOF {
-		panic("error while decoding a record: " + err.Error())
+		return nil, fmt.Errorf("error while decoding a record: %v", err)
 	}
 	if res == nil {
 		fr.file.Close()
 		fr.file = nil
 	}
-	return res
+	return res, nil
 }
 
 type mergeReader struct {
-	next func() interface{}
+	next func() (interface{}, error)
 }
 
-func (mr *mergeReader) Next() interface{} {
+func (mr *mergeReader) Next() (interface{}, error) {
 	return mr.next()
 }
 
-func newMergeReader(less func(a, b interface{}) bool, rs []reader) reader {
+func newMergeReader(less func(a, b interface{}) bool, rs []reader) (reader, error) {
 	n := len(rs)
 	if n == 1 {
-		return rs[0]
+		return rs[0], nil
 	}
 	var rs0, rs1 reader
+	var err error
 	if n == 2 {
 		rs0 = rs[0]
 		rs1 = rs[1]
 	} else {
 		n = n / 2
-		rs0 = newMergeReader(less, rs[:n])
-		rs1 = newMergeReader(less, rs[n:])
+		if rs0, err = newMergeReader(less, rs[:n]); err != nil {
+			return nil, err
+		}
+		if rs1, err = newMergeReader(less, rs[n:]); err != nil {
+			return nil, err
+		}
 	}
-	n0 := rs0.Next()
+	n0, err := rs0.Next()
+	if err != nil {
+		return nil, err
+	}
 	if n0 == nil {
-		return rs1
+		return rs1, nil
 	}
-	n1 := rs1.Next()
-	next := func() interface{} {
+	n1, err := rs1.Next()
+	if err != nil {
+		return nil, err
+	}
+	next := func() (interface{}, error) {
+		var err error
 		if n0 == nil {
-			return nil
+			return nil, nil
 		}
 		if n1 == nil {
 			res := n0
-			n0 = rs0.Next()
-			return res
+			if n0, err = rs0.Next(); err != nil {
+				return nil, err
+			}
+			return res, nil
 		}
 		if less(n0, n1) {
 			res := n0
-			n0 = rs0.Next()
+			if n0, err = rs0.Next(); err != nil {
+				return nil, err
+			}
 			if n0 == nil {
 				n0 = n1
 				n1 = nil
 				rs0 = rs1
 			}
-			return res
+			return res, nil
 		}
 		res := n1
-		n1 = rs1.Next()
-		return res
+		if n1, err = rs1.Next(); err != nil {
+			return nil, err
+		}
+		return res, nil
 	}
-	return &mergeReader{next: next}
+	return &mergeReader{next: next}, nil
 }
 
-func (ps *FileSort) merge() {
+func (ps *FileSort) merge() error {
+	defer close(ps.out)
 	var readers []reader
 	if len(ps.buffer) > 0 {
 		readers = append(readers, &sliceReader{slice: ps.buffer})
@@ -252,15 +287,21 @@ func (ps *FileSort) merge() {
 		}
 		readers = append(readers, fr)
 	}
-	mr := newMergeReader(ps.less, readers)
+	mr, err := newMergeReader(ps.less, readers)
+	if err != nil {
+		return err
+	}
 	for {
-		next := mr.Next()
+		next, err := mr.Next()
+		if err != nil {
+			return err
+		}
 		if next == nil {
 			break
 		}
 		ps.out <- next
 	}
-	close(ps.out)
+	return nil
 }
 
 // Close closes input of the FileSort. After that you can start reading sorted
@@ -271,13 +312,23 @@ func (ps *FileSort) Close() error {
 }
 
 // Sort writes a record for sorting to FileSort.
-func (ps *FileSort) Sort(v interface{}) {
+func (ps *FileSort) Sort(v interface{}) error {
+	if err := ps.err.Load(); err != nil {
+		return err.(error)
+	}
 	ps.in <- v
+	return nil
 }
 
 // Read returns the next sorted record or nil in the end of the stream. Note,
 // that if input hasn't been closed yet, the method will block till it will be
 // closed.
-func (ps *FileSort) Read() interface{} {
-	return <-ps.out
+func (ps *FileSort) Read() (interface{}, error) {
+	val := <-ps.out
+	if val == nil {
+		if err := ps.err.Load(); err != nil {
+			return nil, err.(error)
+		}
+	}
+	return val, nil
 }
