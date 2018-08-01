@@ -311,8 +311,8 @@ func (ps *FileSort) Close() error {
 	return nil
 }
 
-// Sort writes a record for sorting to FileSort.
-func (ps *FileSort) Sort(v interface{}) error {
+// Write writes a record for sorting to FileSort.
+func (ps *FileSort) Write(v interface{}) error {
 	if err := ps.err.Load(); err != nil {
 		return err.(error)
 	}

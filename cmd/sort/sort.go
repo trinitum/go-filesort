@@ -63,7 +63,7 @@ func main() {
 		if err != nil {
 			break
 		}
-		if err := sort.Sort(line); err != nil {
+		if err := sort.Write(line); err != nil {
 			panic(err)
 		}
 	}
