@@ -1,3 +1,5 @@
+// Package filesort provides methods for sorting records that can store the
+// data being sorted to disk if the volume is too big.
 package filesort
 
 import (
@@ -8,21 +10,34 @@ import (
 	"sort"
 )
 
+// Less is a function that compares two values. Should return true if a should
+// come in the output before b
 type Less func(a, b interface{}) bool
 
+// Encoder is an interface that can encode records and write them out
 type Encoder interface {
+	// Encode encodes the argument and writes it out
 	Encode(v interface{}) error
+	// Close flushes buffers and closes the output handler
 	Close() error
 }
 
+// EncoderConstructor is a function that creates Encoder that outputs encoded
+// data to specified io.WriteCloser
 type EncoderConstructor func(w io.WriteCloser) Encoder
 
+// Decoder is an interface that can decode records.
 type Decoder interface {
+	// Decode record
 	Decode() (interface{}, error)
 }
 
+// DecoderConstructor is a function that creates Decoder that reads from the
+// specified io.Reader and decodes records
 type DecoderConstructor func(r io.Reader) Decoder
 
+// FileSort represents a single sort pipe to which you first write all the
+// records, and then reading them sorted.
 type FileSort struct {
 	in         chan interface{}
 	out        chan interface{}
@@ -35,32 +50,40 @@ type FileSort struct {
 	newDecoder DecoderConstructor
 }
 
+// Option represents various options for FileSort
 type Option func(ps *FileSort)
 
+// WithLess specifies comparison function
 func WithLess(less Less) Option {
 	return func(ps *FileSort) {
 		ps.less = less
 	}
 }
 
+// WithEncoderNew specifies the funcion to create the Encoder
 func WithEncoderNew(ec EncoderConstructor) Option {
 	return func(ps *FileSort) {
 		ps.newEncoder = ec
 	}
 }
 
+// WithDecoderNew specifies the funciton to create the Decoder
 func WithDecoderNew(dc DecoderConstructor) Option {
 	return func(ps *FileSort) {
 		ps.newDecoder = dc
 	}
 }
 
+// WithMaxMemoryBuffer specifies the maximum number of records that can be held
+// in memory. When this limit has been reached the records are sorted and
+// flushed to temporary file on disk.
 func WithMaxMemoryBuffer(size int) Option {
 	return func(ps *FileSort) {
 		ps.bufferMax = size
 	}
 }
 
+// New creates a new FileSort object based on specified options
 func New(opts ...Option) (*FileSort, error) {
 	ps := &FileSort{
 		in:        make(chan interface{}, 4096),
@@ -240,15 +263,21 @@ func (ps *FileSort) merge() {
 	close(ps.out)
 }
 
+// Close closes input of the FileSort. After that you can start reading sorted
+// records using the Read method.
 func (ps *FileSort) Close() error {
 	close(ps.in)
 	return nil
 }
 
+// Sort writes a record for sorting to FileSort.
 func (ps *FileSort) Sort(v interface{}) {
 	ps.in <- v
 }
 
+// Read returns the next sorted record or nil in the end of the stream. Note,
+// that if input hasn't been closed yet, the method will block till it will be
+// closed.
 func (ps *FileSort) Read() interface{} {
 	return <-ps.out
 }
