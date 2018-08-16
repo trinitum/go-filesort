@@ -54,7 +54,12 @@ func main() {
 		panic(err)
 	}
 	bin := bufio.NewReader(in)
-	sort, err := filesort.New(filesort.WithLess(testLessLine), filesort.WithEncoderNew(newTestLineEncoder), filesort.WithDecoderNew(newTestLineDecoder), filesort.WithMaxMemoryBuffer(1024*1024))
+	sort, err := filesort.New(
+		filesort.WithLess(testLessLine),
+		filesort.WithEncoderNew(newTestLineEncoder),
+		filesort.WithDecoderNew(newTestLineDecoder),
+		filesort.WithMaxMemoryBuffer(1024*1024),
+	)
 	if err != nil {
 		panic(err)
 	}
