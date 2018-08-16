@@ -11,10 +11,6 @@ import (
 	"sync/atomic"
 )
 
-// Less is a function that compares two values. Should return true if a should
-// come in the output before b
-type Less func(a, b interface{}) bool
-
 // Encoder is an interface that can encode records and write them out
 type Encoder interface {
 	// Encode encodes the argument and writes it out
@@ -23,54 +19,46 @@ type Encoder interface {
 	Close() error
 }
 
-// EncoderConstructor is a function that creates Encoder that outputs encoded
-// data to specified io.WriteCloser
-type EncoderConstructor func(w io.WriteCloser) Encoder
-
 // Decoder is an interface that can decode records.
 type Decoder interface {
 	// Decode record
 	Decode() (interface{}, error)
 }
 
-// DecoderConstructor is a function that creates Decoder that reads from the
-// specified io.Reader and decodes records
-type DecoderConstructor func(r io.Reader) Decoder
-
 // FileSort represents a single sort pipe to which you first write all the
 // records, and then reading them sorted.
 type FileSort struct {
 	in         chan interface{}
 	out        chan interface{}
-	less       Less
+	less       func(a, b interface{}) bool
 	buffer     []interface{}
 	bufferLen  int
 	bufferMax  int
 	files      []string
-	newEncoder EncoderConstructor
-	newDecoder DecoderConstructor
+	newEncoder func(w io.WriteCloser) Encoder
+	newDecoder func(r io.Reader) Decoder
 	err        atomic.Value
 }
 
 // Option represents various options for FileSort
 type Option func(ps *FileSort)
 
-// WithLess specifies comparison function
-func WithLess(less Less) Option {
+// WithLess specifies comparison function that returns true if a should come before b in the sorted output
+func WithLess(less func(a, b interface{}) bool) Option {
 	return func(ps *FileSort) {
 		ps.less = less
 	}
 }
 
 // WithEncoderNew specifies the funcion to create the Encoder
-func WithEncoderNew(ec EncoderConstructor) Option {
+func WithEncoderNew(ec func(w io.WriteCloser) Encoder) Option {
 	return func(ps *FileSort) {
 		ps.newEncoder = ec
 	}
 }
 
 // WithDecoderNew specifies the funciton to create the Decoder
-func WithDecoderNew(dc DecoderConstructor) Option {
+func WithDecoderNew(dc func(r io.Reader) Decoder) Option {
 	return func(ps *FileSort) {
 		ps.newDecoder = dc
 	}
