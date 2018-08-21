@@ -2,6 +2,7 @@ package filesort
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -86,5 +87,31 @@ func TestSort(t *testing.T) {
 	}
 	if n != len(lines) {
 		t.Errorf("expected to read %d values, but got %d", len(lines), n)
+	}
+}
+
+func TestSortStable(t *testing.T) {
+	sort, err := New(
+		WithLess(func(a, b interface{}) bool { return false }),
+		WithEncoderNew(newTestLineEncoder),
+		WithDecoderNew(newTestLineDecoder),
+		WithMaxMemoryBuffer(3),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 100; i++ {
+		sort.Write(fmt.Sprintf("%d", i))
+	}
+	sort.Close()
+	for i := 0; i < 100; i++ {
+		exp := fmt.Sprintf("%d", i)
+		s, err := sort.Read()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s.(string) != exp {
+			t.Fatalf("expected %s but got %s", exp, s.(string))
+		}
 	}
 }

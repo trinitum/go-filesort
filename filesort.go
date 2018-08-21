@@ -241,7 +241,7 @@ func newMergeReader(less func(a, b interface{}) bool, rs []reader) (reader, erro
 			}
 			return res, nil
 		}
-		if less(n0, n1) {
+		if !less(n1, n0) {
 			res := n0
 			if n0, err = rs0.Next(); err != nil {
 				return nil, err
@@ -265,15 +265,15 @@ func newMergeReader(less func(a, b interface{}) bool, rs []reader) (reader, erro
 func (ps *FileSort) merge() error {
 	defer close(ps.out)
 	var readers []reader
-	if len(ps.buffer) > 0 {
-		readers = append(readers, &sliceReader{slice: ps.buffer})
-	}
 	for _, file := range ps.files {
 		fr, err := ps.makeFileReader(file)
 		if err != nil {
 			panic(err)
 		}
 		readers = append(readers, fr)
+	}
+	if len(ps.buffer) > 0 {
+		readers = append(readers, &sliceReader{slice: ps.buffer})
 	}
 	mr, err := newMergeReader(ps.less, readers)
 	if err != nil {
