@@ -7,7 +7,7 @@ import (
 	"io"
 	"strings"
 
-	filesort "github.com/trinitum/go-filesort"
+	filesort "gitlab.com/shaydo/go-filesort"
 )
 
 // Less compares two strings and returns true if the first one should come

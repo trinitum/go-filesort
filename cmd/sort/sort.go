@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	filesort "github.com/trinitum/go-filesort"
-	"github.com/trinitum/go-filesort/text"
+	filesort "gitlab.com/shaydo/go-filesort"
+	"gitlab.com/shaydo/go-filesort/text"
 )
 
 func main() {

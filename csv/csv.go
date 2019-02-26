@@ -5,7 +5,7 @@ import (
 	"encoding/csv"
 	"io"
 
-	filesort "github.com/trinitum/go-filesort"
+	filesort "gitlab.com/shaydo/go-filesort"
 )
 
 type csvEncoder struct {

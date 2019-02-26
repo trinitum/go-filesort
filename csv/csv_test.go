@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	filesort "github.com/trinitum/go-filesort"
+	filesort "gitlab.com/shaydo/go-filesort"
 )
 
 func Example() {
