@@ -1,0 +1,16 @@
+image: golang:latest
+
+stages:
+    - test
+    - lint
+
+test:
+    stage: test
+    script:
+      - go test -race ./...
+
+lint:
+  stage: lint
+  image: golangci/golangci-lint
+  script:
+    - golangci-lint run -D errcheck -E gosec -E golint
